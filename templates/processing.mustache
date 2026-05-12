@@ -1,0 +1,69 @@
+{{!
+    @template mod_fastpix/processing
+
+    Asset is uploading or transcoding. The poller AMD module checks the
+    upload status periodically and reloads when state transitions away
+    from 'pending'. A meta-refresh in <head> (set in view.php) is the
+    JS-free fallback.
+
+    Hard contract:
+      [data-region="fastpix-processing"] with data-cm-id, data-activity-id,
+      and data-upload-session-id (when set).
+      [data-region="fastpix-processing-fallback"] hidden.
+      role=progressbar with aria-label.
+      String helper calls to lang keys: processing_message, processing_max_polls
+      (do NOT embed literal mustache tag examples in this comment — the
+      Mustache comment terminator is the FIRST `..` substring, which would
+      close the comment prematurely if a closing-brace pair appeared inside
+      it; an orphan str-close would then trigger "Unexpected closing tag").
+
+    Context variables:
+      * activity_id        int
+      * cm_id              int
+      * upload_session_id  int|null
+      * activity_name      string
+
+    Inline #ff0050 is the FastPix brand magenta. Used on the spinner +
+    progress fill only. No CSS file is added per project policy.
+}}
+<div class="mod_fastpix-processing card border-0 shadow-sm rounded-3 mx-auto"
+     data-region="fastpix-processing"
+     data-cm-id="{{cm_id}}"
+     data-activity-id="{{activity_id}}"
+     {{#upload_session_id}}data-upload-session-id="{{upload_session_id}}"{{/upload_session_id}}
+     style="max-width: 36rem;">
+    <div class="card-body text-center p-5">
+        <div class="mb-4" aria-hidden="true">
+            <i class="fa fa-spinner fa-spin fa-3x"
+               style="color:#ff0050;"></i>
+        </div>
+        <h3 class="h4 mb-2 fw-semibold">
+            {{#str}}processing_title, mod_fastpix{{/str}}
+        </h3>
+        <p class="text-body-secondary mb-4">
+            {{#str}}processing_message, mod_fastpix{{/str}}
+        </p>
+        <div class="progress rounded-pill"
+             role="progressbar"
+             aria-label="{{#str}}processing_progress_aria, mod_fastpix{{/str}}"
+             aria-busy="true"
+             style="height: 8px;">
+            <div class="progress-bar progress-bar-striped progress-bar-animated"
+                 style="width:100%;background-color:#ff0050;"></div>
+        </div>
+        <p data-region="fastpix-processing-fallback"
+           class="text-body-secondary small mt-4 mb-0"
+           hidden>
+            <i class="fa fa-circle-info me-1" aria-hidden="true"></i>
+            {{#str}}processing_max_polls, mod_fastpix{{/str}}
+        </p>
+    </div>
+</div>
+
+{{#js}}
+require(['mod_fastpix/processing_state_poller'], function(Poller) {
+    if (Poller && typeof Poller.init === 'function') {
+        Poller.init({{cm_id}}, {{#upload_session_id}}{{upload_session_id}}{{/upload_session_id}}{{^upload_session_id}}null{{/upload_session_id}});
+    }
+});
+{{/js}}

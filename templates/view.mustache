@@ -1,0 +1,66 @@
+{{!
+    @template mod_fastpix/view
+
+    Renders the FastPix player wrapper. Phase D's watch_tracker AMD module
+    reads the data-* attributes on the wrapper element to bind itself to
+    the player and route progress callbacks back to record_view_progress.
+
+    Context variables:
+      * playback_id           string
+      * playback_token        string  (DRM JWT)
+      * expires_at_ts         int     (unix seconds)
+      * drm_required          bool
+      * accent_color          string|null
+      * default_show_captions bool
+      * activity_name         string
+      * activity_id           int
+      * cm_id                 int
+      * asset_id              int
+      * session_token         string
+      * no_skip_required      bool
+}}
+{{!
+    The wrapper carries TWO sets of data-* attributes:
+      - Phase C player-mount attrs (data-playback-id, data-playback-token,
+        data-drm-required, data-accent-color, data-video-title) — read by the
+        init script in view.php that creates the <fastpix-player> element AFTER
+        hls.js loads. The element is NOT rendered inline because hls.min.js's
+        UMD wrapper conflicts with RequireJS (CC9 silent failure); we have to
+        defer mount until window.Hls is set.
+      - Phase D watch_tracker attrs (data-cm-id, data-activity-id, etc.) —
+        read by mod_fastpix/watch_tracker AMD module to bind progress callbacks.
+
+    Player attribute names are pinned to the @fastpix/fp-player web component's
+    public surface (README + FastPix Web Player docs). `token` is the HLS-manifest
+    JWT; `drm-token` is the Widevine/FairPlay license JWT. Per local_fastpix §3.5
+    the same JWT serves both. Renaming without reading upstream docs is a CC9
+    violation — the player silently renders an inert black box if attrs drift.
+
+    Styling: rounded-3 + overflow-hidden + shadow-lg are added directly to the
+    wrapper so the <fastpix-player> child gets clipped to rounded corners.
+    The aspect-ratio:16/9 + black background stay inline (the JS contract does
+    not depend on classes; the DOM mount uses querySelector on data-region).
+}}
+<div class="mod_fastpix-player-wrapper rounded-3 overflow-hidden shadow-lg"
+     data-region="fastpix-player-wrapper"
+     data-cm-id="{{cm_id}}"
+     data-activity-id="{{activity_id}}"
+     data-asset-id="{{asset_id}}"
+     data-session-token="{{session_token}}"
+     data-expires-at="{{expires_at_ts}}"
+     data-no-skip-required="{{#no_skip_required}}1{{/no_skip_required}}{{^no_skip_required}}0{{/no_skip_required}}"
+     data-playback-id="{{playback_id}}"
+     data-playback-token="{{playback_token}}"
+     data-drm-required="{{#drm_required}}1{{/drm_required}}{{^drm_required}}0{{/drm_required}}"
+     data-accent-color="{{accent_color}}"
+     data-video-title="{{activity_name}}"
+     style="display:block;width:100%;aspect-ratio:16/9;background:#000;">
+</div>
+
+{{#js}}
+require(['mod_fastpix/player'], function(Player) {
+    if (Player && typeof Player.init === 'function') {
+        Player.init({{cm_id}});
+    }
+});
+{{/js}}
