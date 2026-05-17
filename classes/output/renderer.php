@@ -27,18 +27,26 @@ class renderer extends \plugin_renderer_base {
 
     private function render_player(view_state_player $s): string {
         return $this->render_from_template('mod_fastpix/view', [
-            'playback_id'           => $s->playback_id,
-            'playback_token'        => $s->playback_token,
-            'expires_at_ts'         => $s->expires_at_ts,
-            'drm_required'          => $s->drm_required,
-            'accent_color'          => $s->accent_color,
-            'default_show_captions' => $s->default_show_captions,
-            'activity_name'         => $s->activity_name,
-            'activity_id'           => $s->activity_id,
-            'cm_id'                 => $s->cm_id,
-            'asset_id'              => $s->asset_id,
-            'session_token'         => $s->session_token,
-            'no_skip_required'      => $s->no_skip_required,
+            'playback_id'              => $s->playback_id,
+            'playback_token'           => $s->playback_token,
+            'expires_at_ts'            => $s->expires_at_ts,
+            'drm_required'             => $s->drm_required,
+            'accent_color'             => $s->accent_color,
+            'default_show_captions'    => $s->default_show_captions,
+            'activity_name'            => $s->activity_name,
+            'activity_id'              => $s->activity_id,
+            'cm_id'                    => $s->cm_id,
+            'asset_id'                 => $s->asset_id,
+            'session_token'            => $s->session_token,
+            'no_skip_required'         => $s->no_skip_required,
+            // Phase D Slice A Step 1 — progress strip + resume + tracker prereqs.
+            'initial_coverage_percent' => $s->initial_coverage_percent,
+            'completion_watch_percent' => $s->completion_watch_percent,
+            'current_position'         => $s->current_position,
+            'asset_duration_seconds'   => $s->asset_duration_seconds,
+            // Phase D Slice A Step 2 — tracker JS hydration.
+            'initial_intervals_json'   => $s->initial_intervals_json,
+            'has_completed'            => $s->has_completed,
         ]);
     }
 

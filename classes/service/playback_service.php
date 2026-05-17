@@ -53,10 +53,15 @@ class playback_service {
     }
 
     /**
-     * Does this activity have any REAL watch attempts (watched_seconds > 0)?
-     * "Real" excludes teacher previews which leave behind zero-second rows
+     * Does this activity have any REAL watch attempts?
+     * "Real" excludes teacher previews which leave behind empty-interval rows
      * (see get_or_create_attempt — teachers now get an in-memory stub, but
      * legacy rows from before that fix may still exist).
+     *
+     * Phase D Slice A: post-schema-migration this checks watched_intervals
+     * (was watched_seconds > 0 pre-migration). Preview rows initialise as
+     * the empty-string default; any real progress callback writes a JSON
+     * array, so the "<> ''" predicate is equivalent.
      *
      * Centralised here so mod_form::validation can call it without doing
      * its own $DB read (A6 — services own business logic).
@@ -65,9 +70,31 @@ class playback_service {
         global $DB;
         return $DB->record_exists_select(
             'fastpix_attempt',
-            'activity_id = :aid AND watched_seconds > 0',
+            "activity_id = :aid AND watched_intervals <> ''",
             ['aid' => $activity_id]
         );
+    }
+
+    /**
+     * Compute coverage percent from a serialised watched-intervals JSON blob.
+     * Extracted from resolve_for_view() so PHPUnit can exercise the math
+     * without standing up the full local_fastpix resolve path.
+     *
+     * @param string|null $intervals_json e.g. '[[0,30],[40,50]]' or '' or null
+     * @param int $duration_seconds Asset duration; <= 0 collapses to 0%.
+     */
+    public static function compute_initial_coverage_percent(?string $intervals_json, int $duration_seconds): int {
+        if ($duration_seconds <= 0) {
+            return 0;
+        }
+        $intervals = json_decode($intervals_json ?: '[]', true) ?: [];
+        $watched = 0.0;
+        foreach ($intervals as $interval) {
+            if (is_array($interval) && isset($interval[0], $interval[1])) {
+                $watched += max(0.0, (float)$interval[1] - (float)$interval[0]);
+            }
+        }
+        return (int) min(100, round(($watched / $duration_seconds) * 100));
     }
 
     /**
@@ -141,27 +168,62 @@ class playback_service {
             );
         }
 
+        // Defensive: an asset row can exist with status='ready' but
+        // playback_id still null if the media.ready webhook split (asset
+        // created event arrived but ready event was lost / delayed).
+        // local_fastpix's resolve does not always throw asset_not_ready in
+        // that case; treat empty playback_id as still-processing.
+        if (empty($payload->playback_id)) {
+            return new view_state_processing(
+                activity_id:       (int)$activity->id,
+                cm_id:             (int)$cm->id,
+                upload_session_id: !empty($activity->upload_session_id) ? (int)$activity->upload_session_id : null,
+                activity_name:     (string)$activity->name,
+            );
+        }
+
+        // Phase D Slice A: compute the visible progress strip's first-paint
+        // fill server-side so the bar shows correct % before tracker JS runs.
+        $duration = (int)($asset->duration ?? 0);
+        $initial_coverage = self::compute_initial_coverage_percent(
+            $attempt->watched_intervals ?? '',
+            $duration
+        );
+
         return new view_state_player(
-            playback_id:           $payload->playback_id,
-            playback_token:        $payload->playback_token,
-            expires_at_ts:         $payload->expires_at_ts,
-            drm_required:          $payload->drm_required,
-            accent_color:          $payload->accent_color,
-            default_show_captions: $payload->default_show_captions,
-            activity_name:         (string)$activity->name,
-            activity_id:           (int)$activity->id,
-            cm_id:                 (int)$cm->id,
-            asset_id:              (int)$asset->id,
-            session_token:         (string)$attempt->session_token,
-            no_skip_required:      !empty($asset->no_skip_required),
+            playback_id:               $payload->playback_id,
+            playback_token:            $payload->playback_token,
+            expires_at_ts:             $payload->expires_at_ts,
+            drm_required:              $payload->drm_required,
+            accent_color:              $payload->accent_color,
+            // Teacher's per-activity checkbox (mdl_fastpix.default_show_captions)
+            // is the source of truth — it overrides the tenant default coming
+            // back on the playback_payload. Falsy activity column → fall back
+            // to the tenant-level default so global "always on" still works.
+            default_show_captions:     !empty($activity->default_show_captions)
+                                          ? true
+                                          : (bool) $payload->default_show_captions,
+            activity_name:             (string)$activity->name,
+            activity_id:               (int)$activity->id,
+            cm_id:                     (int)$cm->id,
+            asset_id:                  (int)$asset->id,
+            session_token:             (string)$attempt->session_token,
+            no_skip_required:          !empty($asset->no_skip_required),
+            initial_coverage_percent:  $initial_coverage,
+            completion_watch_percent:  (int)($activity->completion_watch_percent ?? 90),
+            current_position:          (float)($attempt->current_position ?? 0.0),
+            asset_duration_seconds:    $duration,
+            initial_intervals_json:    !empty($attempt->watched_intervals) ? (string)$attempt->watched_intervals : '[]',
+            has_completed:             !empty($attempt->has_completed),
         );
     }
 
     /**
      * Look up the (userid, activity_id) attempt row. If the existing row's
      * session is within TTL, reuse it. Otherwise mint a new session_token
-     * and reset session_start_ts. Phase D will mutate watched_seconds and
-     * fraud_count on this same row.
+     * and reset session_start_ts. Phase D mutates watched_intervals,
+     * current_position, has_completed, seek_count, and fraud_count on this
+     * same row; session reset preserves progress (only session_* is rotated).
      */
     public function get_or_create_attempt(\stdClass $activity, int $userid, \stdClass $asset): \stdClass {
         global $DB;
@@ -190,7 +252,9 @@ class playback_service {
                 'session_start_ts'  => $now,
                 'session_token'     => $tokens->issue($userid, (int)$activity->id, $now),
                 'last_callback_ts'  => null,
-                'watched_seconds'   => 0,
+                'watched_intervals' => '',
+                'current_position'  => 0.0,
+                'has_completed'     => 0,
                 'seek_count'        => 0,
                 'fraud_count'       => 0,
                 'last_fraud_reason' => null,
@@ -217,15 +281,17 @@ class playback_service {
         }
 
         $new = (object)[
-            'userid'           => $userid,
-            'activity_id'      => (int)$activity->id,
-            'asset_id'         => (int)$asset->id,
-            'session_start_ts' => $now,
-            'session_token'    => $tokens->issue($userid, (int)$activity->id, $now),
-            'watched_seconds'  => 0,
-            'seek_count'       => 0,
-            'fraud_count'      => 0,
-            'completion_state' => 'in_progress',
+            'userid'            => $userid,
+            'activity_id'       => (int)$activity->id,
+            'asset_id'          => (int)$asset->id,
+            'session_start_ts'  => $now,
+            'session_token'     => $tokens->issue($userid, (int)$activity->id, $now),
+            'watched_intervals' => '',
+            'current_position'  => 0,
+            'has_completed'     => 0,
+            'seek_count'        => 0,
+            'fraud_count'       => 0,
+            'completion_state'  => 'in_progress',
         ];
         $new->id = $DB->insert_record('fastpix_attempt', $new);
         return $new;

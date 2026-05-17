@@ -1,19 +1,18 @@
 // AMD module for the mod_fastpix activity edit form upload widget.
 //
+// Phase C unified panel:
+// - Single panel showing drop zone + URL row at once (no pill toggle).
+// - File drop or click → set hidden source_type='upload', auto-start upload.
+// - URL + Upload button → set hidden source_type='urlpull', validate via
+//   local_fastpix_create_url_pull_session.
+// - Hidden source_type field is mutated via .value= and a dispatched
+//   change event so any consumer (server-side validation, mform hideIf)
+//   sees the active mode.
+//
 // Calls local_fastpix_create_upload_session / local_fastpix_create_url_pull_session
-// via core/ajax (CC2). On success, stashes the returned session_id onto the
-// hidden form field named by config.fieldnameSession.
-//
-// Per A2: this module makes ZERO direct calls to the video CDN. The signed
-// upload URL is fetched from local_fastpix and PUT to as a vendor-supplied
-// signed URL — that PUT is the only egress and it is to a host chosen by
-// local_fastpix, not by us.
-//
-// Phase C UI redesign:
-// - Pill-toggle (rendered by mod_form HTML) drives the hidden <select name="source_type">.
-// - Drop zone replaces the file-input + Start-upload pair. Click or drop both
-//   trigger the hidden <input type="file">. Selecting a file auto-starts the upload.
-// - Post-upload preview row replaces the inline alert on success.
+// via core/ajax (CC2). Per A2: zero direct calls to the video CDN — the
+// signed upload URL is PUT to using fetch/XHR but the URL is supplied
+// by local_fastpix, not constructed here.
 
 import {call as ajaxCall} from 'core/ajax';
 import Notification from 'core/notification';
@@ -24,22 +23,26 @@ const SELECTORS = {
     picker:           '[data-region="fastpix-upload-picker"]',
     dropzone:         '[data-region="fastpix-upload-dropzone"]',
     input:            '[data-region="fastpix-upload-input"]',
+    browseLink:       '[data-action="fastpix-browse-trigger"]',
     progressWrap:     '[data-region="fastpix-upload-progress"]',
     progressBar:      '[data-region="fastpix-upload-bar"]',
     progressBarFill:  '[data-region="fastpix-upload-bar-fill"]',
     progressPct:      '[data-region="fastpix-upload-percent"]',
     status:           '[data-region="fastpix-upload-status"]',
-    urlSection:       '[data-region="fastpix-urlpull-section"]',
     urlStatus:        '[data-region="fastpix-urlpull-status"]',
-    urlPreview:       '[data-region="fastpix-urlpull-preview"]',
-    urlPreviewUrl:    '[data-region="fastpix-urlpull-preview-url"]',
     sourceType:       '[name="source_type"]',
     sourceUrl:        '[name="source_url"]',
     validateBtn:      '[name="validate_url"]',
-    sourceTab:        '[data-action="fastpix-source-tab"]',
 };
 
 const getSessionField = (fieldname) => document.querySelector(`input[name="${fieldname}"]`);
+
+const setSourceType = (value) => {
+    const el = document.querySelector(SELECTORS.sourceType);
+    if (!el) { return; }
+    el.value = value;
+    el.dispatchEvent(new Event('change', {bubbles: true}));
+};
 
 const setStatus = (region, message, kind) => {
     const el = region.querySelector(SELECTORS.status);
@@ -61,16 +64,16 @@ const setUrlStatus = (message, kind) => {
     const el = document.querySelector(SELECTORS.urlStatus);
     if (!el) { return; }
     el.textContent = message;
-    el.className = `text-${kind === 'success' ? 'success' : kind === 'danger' ? 'danger' : 'body-secondary'} small mt-1`;
+    el.className = `text-${kind === 'success' ? 'success' : kind === 'danger' ? 'danger' : 'body-secondary'} small mt-2`;
 };
 
 /**
  * PUT bytes to the signed upload URL with progress reporting.
  *
- * Tracks upload completion separately from response receipt: FastPix's
- * signed-PUT bucket does not return Access-Control-Allow-Origin on the PUT
- * response, so the browser fires `error` even when bytes are accepted
- * server-side. We treat "progress reached 100% then error fired" as success.
+ * CORS-after-100% workaround: FastPix's signed-PUT bucket doesn't return
+ * Access-Control-Allow-Origin on the PUT response, so the browser fires
+ * `error` even after bytes are accepted server-side. Treat "progress
+ * reached 100% then error fired" as success.
  */
 const putToSignedUrl = (file, uploadUrl, onProgress) => new Promise((resolve, reject) => {
     let bytesUploaded = false;
@@ -109,9 +112,6 @@ const showProgressUI = (region) => {
 };
 
 const showSuccessUI = (region, filename) => {
-    // Hand off to the upload-status alert instead of a separate preview
-    // row — the row was removed in the C9 cleanup. Filename is announced
-    // via aria-live for accessibility.
     const progress = region.querySelector(SELECTORS.progressWrap);
     if (progress) { progress.hidden = true; }
     setStatus(region, `Uploaded ${filename}. Save the activity to finalise.`, 'success');
@@ -126,6 +126,7 @@ const showDropzoneUI = (region) => {
 
 const handleFileSelected = async (region, sessionField, file) => {
     if (!file) { return; }
+    setSourceType('upload');
     clearStatus(region);
     showProgressUI(region);
 
@@ -165,11 +166,21 @@ const handleFileSelected = async (region, sessionField, file) => {
 const wireDropzone = (region, sessionField) => {
     const dropzone = region.querySelector(SELECTORS.dropzone);
     const input = region.querySelector(SELECTORS.input);
+    const browse = region.querySelector(SELECTORS.browseLink);
     if (!dropzone || !input) { return; }
 
+    // Browse link (rendered above the transparent file input z-index-wise).
+    if (browse) {
+        browse.addEventListener('click', (e) => {
+            e.preventDefault();
+            input.click();
+        });
+    }
+
     dropzone.addEventListener('click', (e) => {
-        // Avoid recursion if the click came from the inner native input.
-        if (e.target === input) { return; }
+        // The browse link handles its own click. The native input also catches
+        // clicks directly via z-index. Avoid double-trigger.
+        if (e.target === input || e.target === browse) { return; }
         input.click();
     });
 
@@ -181,7 +192,6 @@ const wireDropzone = (region, sessionField) => {
     });
 
     const setDragging = (on) => {
-        // Visual style is owned by the .is-dragging CSS rule in the template.
         dropzone.classList.toggle('is-dragging', !!on);
     };
 
@@ -213,14 +223,16 @@ const wireDropzone = (region, sessionField) => {
     });
 };
 
-const validateUrl = async (sessionField) => {
+const validateUrl = async (sessionField, button) => {
     const urlInput = document.querySelector(SELECTORS.sourceUrl);
     if (!urlInput || !urlInput.value) {
         setUrlStatus('Enter a URL first.', 'warning');
         return;
     }
 
-    setUrlStatus('Validating…', 'muted');
+    setSourceType('urlpull');
+    setUrlStatus('Uploading…', 'muted');
+    if (button) { button.disabled = true; }
 
     let session;
     try {
@@ -231,76 +243,18 @@ const validateUrl = async (sessionField) => {
     } catch (e) {
         Notification.exception(e);
         setUrlStatus('URL rejected.', 'danger');
+        if (button) { button.disabled = false; }
         return;
     }
 
     sessionField.value = String(session.session_id);
-
-    // Reveal the urlpull-preview row and populate it with the URL value.
-    // Use document-scoped queries so this still works even if the preview
-    // wrapper sits at a different nesting depth than the URL input.
-    const slot = document.querySelector(SELECTORS.urlPreviewUrl);
-    if (slot) { slot.textContent = urlInput.value; }
-    const preview = document.querySelector(SELECTORS.urlPreview);
-    if (preview) { preview.hidden = false; }
-    setUrlStatus('✓ URL validated. Save the activity to finalize.', 'success');
+    setUrlStatus('✓ URL accepted. Save the activity to finalise.', 'success');
+    if (button) { button.disabled = false; }
 };
 
 const renderInto = async (region) => {
     const {html, js} = await Templates.renderForPromise('mod_fastpix/upload_widget', {});
     Templates.replaceNodeContents(region, html, js);
-};
-
-const refreshTabVisibility = (region) => {
-    const sourceType = document.querySelector(SELECTORS.sourceType);
-    if (!sourceType) { return; }
-    const isUpload = sourceType.value === 'upload';
-    // Toggle the inner picker (rendered into [data-region=fastpix-upload-widget])
-    // and the separate urlpull section emitted from mod_form HTML.
-    if (region) {
-        const picker = region.querySelector(SELECTORS.picker);
-        if (picker) { picker.hidden = !isUpload; }
-    }
-    const urlSection = document.querySelector(SELECTORS.urlSection);
-    if (urlSection) { urlSection.hidden = isUpload; }
-};
-
-const refreshPillVisuals = () => {
-    const sourceType = document.querySelector(SELECTORS.sourceType);
-    if (!sourceType) { return; }
-    document.querySelectorAll(SELECTORS.sourceTab).forEach((btn) => {
-        const active = btn.getAttribute('data-source-type') === sourceType.value;
-        btn.setAttribute('aria-selected', active ? 'true' : 'false');
-        if (active) {
-            btn.classList.add('fw-medium');
-            btn.classList.remove('text-body-secondary', 'border-0');
-            btn.style.background = '#fff';
-            btn.style.border = '1px solid #e5e7eb';
-            btn.style.boxShadow = '0 1px 2px rgba(0,0,0,.05)';
-        } else {
-            btn.classList.add('text-body-secondary', 'fw-medium', 'border-0');
-            btn.style.background = 'transparent';
-            btn.style.border = '0';
-            btn.style.boxShadow = 'none';
-        }
-    });
-};
-
-const wirePillToggle = () => {
-    const sourceType = document.querySelector(SELECTORS.sourceType);
-    if (!sourceType) { return; }
-    document.querySelectorAll(SELECTORS.sourceTab).forEach((btn) => {
-        if (btn.getAttribute('data-fastpix-wired') === '1') { return; }
-        btn.setAttribute('data-fastpix-wired', '1');
-        btn.addEventListener('click', (e) => {
-            e.preventDefault();
-            const target = btn.getAttribute('data-source-type');
-            if (sourceType.value === target) { return; }
-            sourceType.value = target;
-            sourceType.dispatchEvent(new Event('change', {bubbles: true}));
-            refreshPillVisuals();
-        });
-    });
 };
 
 export const init = async (config) => {
@@ -310,39 +264,49 @@ export const init = async (config) => {
     const sessionField = getSessionField(config.fieldnameSession);
     if (!sessionField) { return; }
 
-    wirePillToggle();
-    refreshPillVisuals();
-
-    const sourceType = document.querySelector(SELECTORS.sourceType);
-    if (sourceType) {
-        sourceType.addEventListener('change', () => {
-            refreshTabVisibility(region);
-            refreshPillVisuals();
-        });
-    }
-
+    // Wire the URL Upload button at outer-document scope BEFORE the inner
+    // template renders, so the listener is in place even if the user
+    // somehow clicks before render completes.
     const validateBtn = document.querySelector(SELECTORS.validateBtn);
     if (validateBtn && validateBtn.getAttribute('data-fastpix-wired') !== '1') {
         validateBtn.setAttribute('data-fastpix-wired', '1');
         validateBtn.addEventListener('click', (e) => {
             e.preventDefault();
-            validateUrl(sessionField);
+            validateUrl(sessionField, validateBtn);
         });
     }
 
-    // Invalidate the urlpull preview + cached session when the URL is edited.
-    // Saves teachers from submitting an old session_id against a new URL.
+    // Editing the URL invalidates a prior validate (so the form doesn't
+    // submit a stale upload_session_id against a new URL).
     const urlInput = document.querySelector(SELECTORS.sourceUrl);
     if (urlInput && urlInput.getAttribute('data-fastpix-wired') !== '1') {
         urlInput.setAttribute('data-fastpix-wired', '1');
         urlInput.addEventListener('input', () => {
-            const preview = document.querySelector(SELECTORS.urlPreview);
-            if (preview) { preview.hidden = true; }
             if (sessionField) { sessionField.value = ''; }
+            setUrlStatus('', 'muted');
         });
     }
 
     await renderInto(region);
-    refreshTabVisibility(region);
+
+    // After render, re-query for URL input + validate button (template may
+    // replace them) and wire dropzone.
+    const renderedUrlInput = document.querySelector(SELECTORS.sourceUrl);
+    const renderedValidateBtn = document.querySelector(SELECTORS.validateBtn);
+    if (renderedValidateBtn && renderedValidateBtn.getAttribute('data-fastpix-wired') !== '1') {
+        renderedValidateBtn.setAttribute('data-fastpix-wired', '1');
+        renderedValidateBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            validateUrl(sessionField, renderedValidateBtn);
+        });
+    }
+    if (renderedUrlInput && renderedUrlInput.getAttribute('data-fastpix-wired') !== '1') {
+        renderedUrlInput.setAttribute('data-fastpix-wired', '1');
+        renderedUrlInput.addEventListener('input', () => {
+            if (sessionField) { sessionField.value = ''; }
+            setUrlStatus('', 'muted');
+        });
+    }
+
     wireDropzone(region, sessionField);
 };

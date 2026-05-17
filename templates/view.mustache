@@ -1,23 +1,35 @@
 {{!
     @template mod_fastpix/view
 
-    Renders the FastPix player wrapper. Phase D's watch_tracker AMD module
+    Renders the FastPix player wrapper. Phase D watch_tracker AMD module
     reads the data-* attributes on the wrapper element to bind itself to
     the player and route progress callbacks back to record_view_progress.
 
     Context variables:
-      * playback_id           string
-      * playback_token        string  (DRM JWT)
-      * expires_at_ts         int     (unix seconds)
-      * drm_required          bool
-      * accent_color          string|null
-      * default_show_captions bool
-      * activity_name         string
-      * activity_id           int
-      * cm_id                 int
-      * asset_id              int
-      * session_token         string
-      * no_skip_required      bool
+      * playback_id              string
+      * playback_token           string  (DRM JWT)
+      * expires_at_ts            int     (unix seconds)
+      * drm_required             bool
+      * accent_color             string|null
+      * default_show_captions    bool
+      * activity_name            string
+      * activity_id              int
+      * cm_id                    int
+      * asset_id                 int
+      * session_token            string
+      * no_skip_required         bool
+      * initial_coverage_percent int     (Phase D — pre-computed % for first paint)
+      * completion_watch_percent int     (Phase D — threshold from the activity)
+      * current_position         float   (Phase D — resume position in seconds)
+      * asset_duration_seconds   int     (Phase D — needed by tracker JS)
+      * initial_intervals_json   string  (Phase D — raw JSON literal emitted via
+                                          the triple-brace form lower down)
+      * has_completed            bool    (Phase D — sticky once true)
+
+    NOTE — do NOT write literal mustache examples (with curly-brace pairs) inside
+    this comment block. Mustache treats the first close-pair-of-braces it finds
+    in a comment as the terminator, so any embedded example would close this
+    comment early and leak the remainder of the block as visible HTML.
 }}
 {{!
     The wrapper carries TWO sets of data-* attributes:
@@ -30,7 +42,7 @@
       - Phase D watch_tracker attrs (data-cm-id, data-activity-id, etc.) —
         read by mod_fastpix/watch_tracker AMD module to bind progress callbacks.
 
-    Player attribute names are pinned to the @fastpix/fp-player web component's
+    Player attribute names are pinned to the @fastpix/fp-player web component
     public surface (README + FastPix Web Player docs). `token` is the HLS-manifest
     JWT; `drm-token` is the Widevine/FairPlay license JWT. Per local_fastpix §3.5
     the same JWT serves both. Renaming without reading upstream docs is a CC9
@@ -54,7 +66,60 @@
      data-drm-required="{{#drm_required}}1{{/drm_required}}{{^drm_required}}0{{/drm_required}}"
      data-accent-color="{{accent_color}}"
      data-video-title="{{activity_name}}"
+     data-current-position="{{current_position}}"
      style="display:block;width:100%;aspect-ratio:16/9;background:#000;">
+</div>
+
+{{!
+    Segmented coverage indicator with status pill. Coverage = unique seconds
+    actually watched (drives completion + grade, only ever grows). The
+    10-block bar paints one block per 10% of coverage; the active block
+    fills proportionally. The pill on the right shows live status —
+    "Processing" while below threshold (pink, pulsing dot) or "Complete"
+    when coverage has crossed the activity's completion threshold (green,
+    steady). Initial coverage % is server-pre-computed in
+    playback_service::compute_initial_coverage_percent so the bar paints
+    correctly on first frame. The tracker JS in view.php repaints it on
+    every timeupdate.
+
+    Per UX spec: position bar is gone; coverage is the only meaningful
+    signal because it drives completion. Showing position confuses the
+    progression message ("I'm at 80% — wait, why am I not complete?").
+}}
+<div class="mod_fastpix-covbar mt-3"
+     data-region="fastpix-bars"
+     data-threshold="{{completion_watch_percent}}"
+     data-asset-duration="{{asset_duration_seconds}}">
+
+    <div class="mod_fastpix-covbar-card" data-region="fastpix-covbar-card">
+        <div class="mod_fastpix-covbar-track" data-region="fastpix-covbar-track">
+            <div class="mod_fastpix-covbar-watched" data-region="fastpix-covbar-watched" style="width:0%"></div>
+            <div class="mod_fastpix-covbar-needed"  data-region="fastpix-covbar-needed"  style="width:{{completion_watch_percent}}%"></div>
+            <div class="mod_fastpix-covbar-bonus"   data-region="fastpix-covbar-bonus"   style="width:0%"></div>
+            <div class="mod_fastpix-covbar-label"   data-region="fastpix-covbar-label">{{completion_watch_percent}}%</div>
+        </div>
+
+        <div class="mod_fastpix-covbar-footer">
+            <div class="mod_fastpix-covbar-legend">
+                <span class="mod_fastpix-covbar-legend-item">
+                    <span class="mod_fastpix-covbar-swatch mod_fastpix-covbar-swatch-watched" aria-hidden="true"></span>
+                    {{#str}}coverage_legend_watched, mod_fastpix{{/str}}
+                </span>
+                <span class="mod_fastpix-covbar-legend-item">
+                    <span class="mod_fastpix-covbar-swatch mod_fastpix-covbar-swatch-needed" aria-hidden="true"></span>
+                    {{#str}}coverage_legend_needed, mod_fastpix{{/str}}
+                </span>
+                <span class="mod_fastpix-covbar-legend-item">
+                    <span class="mod_fastpix-covbar-swatch mod_fastpix-covbar-swatch-bonus" aria-hidden="true"></span>
+                    {{#str}}coverage_legend_bonus, mod_fastpix{{/str}}
+                </span>
+            </div>
+            <div class="mod_fastpix-covbar-pill" data-region="fastpix-covbar-pill">
+                <span class="mod_fastpix-covbar-dot" aria-hidden="true"></span>
+                <span class="mod_fastpix-covbar-status" data-region="fastpix-covbar-status">{{#str}}status_processing, mod_fastpix{{/str}}</span>
+            </div>
+        </div>
+    </div>
 </div>
 
 {{#js}}

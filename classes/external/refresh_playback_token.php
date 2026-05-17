@@ -68,8 +68,8 @@ class refresh_playback_token extends external_api {
         }
 
         return [
-            'playback_token' => $payload->playback_token,
-            'expires_at_ts'  => $payload->expires_at_ts,
+            'playback_token' => $payload->playbacktoken,
+            'expires_at_ts'  => $payload->expiresatts,
         ];
     }
 }

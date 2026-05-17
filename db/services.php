@@ -14,6 +14,14 @@ $functions = [
         'ajax'         => true,
         'capabilities' => 'mod/fastpix:view',
     ],
+    'mod_fastpix_record_view_progress' => [
+        'classname'    => '\mod_fastpix\external\record_view_progress',
+        'methodname'   => 'execute',
+        'description'  => 'Persist client-reported watch progress with server-side fraud checks.',
+        'type'         => 'write',
+        'ajax'         => true,
+        'capabilities' => 'mod/fastpix:view',
+    ],
 ];
 
 // mod_fastpix does not define its own service group; functions hook into Moodle's mobile + REST services.

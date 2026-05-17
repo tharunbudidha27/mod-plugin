@@ -26,147 +26,106 @@ class mod_fastpix_mod_form extends moodleform_mod {
             ['class' => 'text-body-secondary small mb-3', 'style' => 'max-width: 56rem;']
         ));
 
-        // Pill-toggle (Upload from device | Pull from URL). Visually a segmented
-        // control; functionally a thin wrapper that writes into the hidden
-        // <select name="source_type"> and dispatches a change event. The AMD
-        // module also toggles `.hidden` on the upload picker and the URL pull
-        // section based on this select's value (replaces the old hideIf wiring).
-        $pillgroup = html_writer::tag('div',
-            html_writer::tag('button',
-                html_writer::tag('i', '', ['class' => 'fa fa-cloud-arrow-up me-2', 'aria-hidden' => 'true']) .
-                html_writer::tag('span', s(get_string('sourcetype_upload', 'mod_fastpix'))),
-                [
-                    'type'             => 'button',
-                    'class'            => 'btn btn-sm rounded-pill px-3 py-2 fw-medium',
-                    'data-action'      => 'fastpix-source-tab',
-                    'data-source-type' => 'upload',
-                    'role'             => 'tab',
-                    'aria-selected'    => 'true',
-                    'style'            => 'background:#fff;border:1px solid #e5e7eb;box-shadow:0 1px 2px rgba(0,0,0,.05);',
-                ]
-            ) .
-            html_writer::tag('button',
-                html_writer::tag('i', '', ['class' => 'fa fa-link me-2', 'aria-hidden' => 'true']) .
-                html_writer::tag('span', s(get_string('sourcetype_urlpull', 'mod_fastpix'))),
-                [
-                    'type'             => 'button',
-                    'class'            => 'btn btn-sm rounded-pill px-3 py-2 text-body-secondary fw-medium border-0',
-                    'data-action'      => 'fastpix-source-tab',
-                    'data-source-type' => 'urlpull',
-                    'role'             => 'tab',
-                    'aria-selected'    => 'false',
-                    'style'            => 'background:transparent;',
-                ]
-            ),
-            [
-                'class'      => 'd-inline-flex p-1 mb-3 rounded-pill',
-                'style'      => 'background:#f3f4f6;gap:4px;',
-                'role'       => 'tablist',
-                'aria-label' => s(get_string('sourcetype', 'mod_fastpix')),
-            ]
-        );
-        $mform->addElement('html', $pillgroup);
-        $mform->addElement('html', '<style>[data-action="fastpix-source-tab"]:focus-visible{outline:2px solid rgba(255,0,80,.4);outline-offset:2px;}</style>');
+        // source_type is a registered hidden mform element. AMD sets its value
+        // when the user touches one input or the other (file selected →
+        // 'upload'; URL Upload button clicked → 'urlpull'). PHP validation
+        // reads $data['source_type'] unchanged.
+        $mform->addElement('hidden', 'source_type', 'upload');
+        $mform->setType('source_type', PARAM_ALPHA);
 
-        // The <select> remains in the DOM so existing PHP validation reads
-        // $data['source_type'] unchanged AND Moodle's hideIf machinery still
-        // toggles the URL row. The form-row is hidden via inline CSS — pill
-        // clicks (handled in AMD) update its value and dispatch change.
-        $mform->addElement('select', 'source_type', get_string('sourcetype', 'mod_fastpix'), [
-            'upload'  => get_string('sourcetype_upload', 'mod_fastpix'),
-            'urlpull' => get_string('sourcetype_urlpull', 'mod_fastpix'),
-        ]);
-        $mform->setDefault('source_type', 'upload');
-        $mform->addElement('html', '<style>#fitem_id_source_type{display:none !important;}</style>');
-
+        // Single unified upload panel — mustache template renders both the
+        // drop zone AND the URL row into this div, gradient-framed per mockup.
         $mform->addElement('html', '<div data-region="fastpix-upload-widget"
             data-fieldname-session="upload_session_id"></div>');
-
-        // URL pull section — entire panel rendered as one HTML block so it
-        // matches the dashed-card mockup. The visible <input name="source_url">
-        // and <button name="validate_url"> submit/AMD-wire by name. The
-        // section's visibility is driven entirely by the pill toggle in AMD;
-        // no mform hideIf needed here.
-        $dlcode        = html_writer::tag('code', 'dl=1', ['class' => 'bg-body-secondary px-1 rounded small']);
-        $supportedmeta = get_string('urlpull_supported_meta', 'mod_fastpix', $dlcode);
-
-        // Preserve the typed URL across server-side re-renders. The input is
-        // emitted as raw HTML (not a registered mform element), so QuickForm
-        // does not auto-repopulate it on validation failure — without this,
-        // a failed save bounces back with the URL field cleared, looping
-        // the validation error.
-        $submittedurl = optional_param('source_url', '', PARAM_RAW_TRIMMED);
-
-        $urlpullinput = html_writer::empty_tag('input', [
-            'type'         => 'url',
-            'name'         => 'source_url',
-            'value'        => $submittedurl,
-            'class'        => 'form-control form-control-lg flex-grow-1',
-            'placeholder'  => get_string('urlpull_placeholder', 'mod_fastpix'),
-            'autocomplete' => 'off',
-            'spellcheck'   => 'false',
-            'style'        => 'min-width:16rem;',
-        ]);
-        $urlpullbtn = html_writer::tag('button',
-            html_writer::tag('i', '', ['class' => 'fa fa-cloud-arrow-down me-2', 'aria-hidden' => 'true'])
-                . s(get_string('urlpull_start_ingest', 'mod_fastpix')),
-            [
-                'type'  => 'button',
-                'name'  => 'validate_url',
-                'class' => 'btn fw-medium px-4 rounded-pill bg-primary-subtle text-primary border-0',
-                'style' => 'white-space:nowrap;',
-            ]
-        );
-
-        $urlpullcard = html_writer::div(
-            html_writer::div(
-                html_writer::tag('i', '', ['class' => 'fa fa-link me-2', 'aria-hidden' => 'true', 'style' => 'color:#6b7280;'])
-                    . html_writer::tag('span', s(get_string('urlpull_card_title', 'mod_fastpix')),
-                        ['class' => 'fw-semibold', 'style' => 'font-size:15px;']),
-                'd-flex align-items-center mb-2'
-            )
-            . html_writer::tag('p', s(get_string('urlpull_card_help', 'mod_fastpix')),
-                ['class' => 'text-body-secondary small mb-3'])
-            . html_writer::div($urlpullinput . $urlpullbtn,
-                'd-flex flex-wrap align-items-stretch gap-2')
-            . html_writer::div('', 'text-body-secondary small mt-2',
-                ['data-region' => 'fastpix-urlpull-status']),
-            'rounded-3 p-4',
-            ['style' => 'border:2px dashed #d1d5db;background:#fff;']
-        );
-
-        $urlpullhelpers =
-            html_writer::tag('p',
-                html_writer::tag('i', '', ['class' => 'fa fa-circle-info me-2 mt-1', 'aria-hidden' => 'true'])
-                    . html_writer::tag('span', $supportedmeta),
-                ['class' => 'd-flex align-items-start mt-3 mb-1 text-body-secondary small']
-            )
-            . html_writer::tag('p',
-                html_writer::tag('i', '', ['class' => 'fa fa-shield-halved me-2 mt-1', 'aria-hidden' => 'true', 'style' => 'color:#6b7280;'])
-                    . html_writer::tag('span', s(get_string('urlpull_ssrf_meta', 'mod_fastpix'))),
-                ['class' => 'd-flex align-items-start mb-3 text-body-secondary small']
-            );
-
-        $urlpullsection = html_writer::div(
-            $urlpullcard . $urlpullhelpers,
-            '',
-            ['data-region' => 'fastpix-urlpull-section', 'hidden' => 'hidden']
-        );
-
-        $mform->addElement('html', $urlpullsection);
 
         $mform->addElement('hidden', 'upload_session_id');
         $mform->setType('upload_session_id', PARAM_INT);
 
         $mform->addElement('header', 'playbackoptions', get_string('playbackoptions', 'mod_fastpix'));
 
-        $mform->addElement('advcheckbox', 'no_skip_required',
-            get_string('noskip', 'mod_fastpix'), get_string('noskip_desc', 'mod_fastpix'));
-        $mform->addHelpButton('no_skip_required', 'noskip', 'mod_fastpix');
+        // Resolve current values for edit mode so the cards render with the
+        // correct checked state on first paint. Create mode falls through to
+        // the conservative 0/0 default.
+        $noskipchecked   = 0;
+        $captionschecked = 0;
+        if (!empty($this->_instance)) {
+            global $DB;
+            $existing = $DB->get_record('fastpix', ['id' => $this->_instance],
+                'no_skip_required, default_show_captions');
+            if ($existing) {
+                $noskipchecked   = !empty($existing->no_skip_required) ? 1 : 0;
+                $captionschecked = !empty($existing->default_show_captions) ? 1 : 0;
+            }
+        }
 
-        $mform->addElement('advcheckbox', 'default_show_captions',
-            get_string('autocaptions', 'mod_fastpix'), get_string('autocaptions_desc', 'mod_fastpix'));
-        $mform->addHelpButton('default_show_captions', 'autocaptions', 'mod_fastpix');
+        // Intro card — film-strip icon + section description.
+        $introtitle = s(get_string('playbackoptions_card_title', 'mod_fastpix'));
+        $introdesc  = s(get_string('playbackoptions_intro', 'mod_fastpix'));
+        $filmsvg = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="3" y="4" width="18" height="16" rx="2"/>
+                <path d="M7 4v16M17 4v16M3 9h4M3 15h4M17 9h4M17 15h4"/>
+            </svg>';
+        $mform->addElement('html',
+            '<div class="fastpix-pb-intro">
+                <div class="fastpix-pb-intro-icon">' . $filmsvg . '</div>
+                <div class="fastpix-pb-intro-body">
+                    <div class="fastpix-pb-intro-title">' . $introtitle . '</div>
+                    <p class="fastpix-pb-intro-desc">' . $introdesc . '</p>
+                </div>
+            </div>'
+        );
+
+        // Options panel — two rows separated by a hairline divider.
+        $locksvg = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="4" y="11" width="16" height="10" rx="2"/>
+                <path d="M8 11V7a4 4 0 0 1 8 0v4"/>
+            </svg>';
+        $ccsvg = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="3" y="5" width="18" height="14" rx="3"/>
+                <path d="M10 10a2 2 0 0 0-2 2v0a2 2 0 0 0 2 2M16 10a2 2 0 0 0-2 2v0a2 2 0 0 0 2 2"/>
+            </svg>';
+
+        $noskiplabel = s(get_string('noskip', 'mod_fastpix'));
+        $noskipdesc  = s(get_string('noskip_desc', 'mod_fastpix'));
+        $capslabel   = s(get_string('autocaptions', 'mod_fastpix'));
+        $capsdesc    = s(get_string('autocaptions_desc', 'mod_fastpix'));
+
+        // Each card row renders a hidden 0-fallback followed by the visible
+        // checkbox — same wire format mform's advcheckbox emits, so the save
+        // path picks the value up identically. Native input lets us style
+        // freely without fighting mform's renderer.
+        $mform->addElement('html',
+            '<div class="fastpix-pb-options">
+                <div class="fastpix-pb-row">
+                    <div class="fastpix-pb-row-icon">' . $locksvg . '</div>
+                    <div class="fastpix-pb-row-label">' . $noskiplabel . '</div>
+                    <div class="fastpix-pb-row-check">
+                        <input type="hidden" name="no_skip_required" value="0">
+                        <input type="checkbox" id="id_no_skip_required"
+                               name="no_skip_required" value="1"' .
+                               ($noskipchecked ? ' checked' : '') . '>
+                    </div>
+                    <div class="fastpix-pb-row-desc">' . $noskipdesc . '</div>
+                </div>
+                <div class="fastpix-pb-row">
+                    <div class="fastpix-pb-row-icon">' . $ccsvg . '</div>
+                    <div class="fastpix-pb-row-label">' . $capslabel . '</div>
+                    <div class="fastpix-pb-row-check">
+                        <input type="hidden" name="default_show_captions" value="0">
+                        <input type="checkbox" id="id_default_show_captions"
+                               name="default_show_captions" value="1"' .
+                               ($captionschecked ? ' checked' : '') . '>
+                    </div>
+                    <div class="fastpix-pb-row-desc">' . $capsdesc . '</div>
+                </div>
+            </div>'
+        );
 
         global $PAGE;
         $cmid = !empty($this->_cm->id) ? (int)$this->_cm->id : 0;
@@ -262,7 +221,7 @@ class mod_fastpix_mod_form extends moodleform_mod {
             $existing = $DB->get_record('fastpix', ['id' => $this->_instance]);
             if ($existing) {
                 // Service owns the "has any real attempts?" check (A6).
-                // Real = watched_seconds > 0 (excludes teacher previews).
+                // Real = watched_intervals non-empty (excludes teacher previews).
                 $hasrealattempts = \mod_fastpix\service\playback_service::instance()
                     ->has_attempts_for((int)$this->_instance);
                 $newsession = !empty($data['upload_session_id']) ? (int)$data['upload_session_id'] : null;

@@ -9,13 +9,10 @@
     Hard contract:
       [data-region="fastpix-processing"] with data-cm-id, data-activity-id,
       and data-upload-session-id (when set).
-      [data-region="fastpix-processing-fallback"] hidden.
+      [data-region="fastpix-processing-fallback"] hidden by default.
       role=progressbar with aria-label.
-      String helper calls to lang keys: processing_message, processing_max_polls
-      (do NOT embed literal mustache tag examples in this comment — the
-      Mustache comment terminator is the FIRST `..` substring, which would
-      close the comment prematurely if a closing-brace pair appeared inside
-      it; an orphan str-close would then trigger "Unexpected closing tag").
+      String helpers for processing_title / processing_message /
+      processing_progress_aria / processing_max_polls.
 
     Context variables:
       * activity_id        int
@@ -23,39 +20,183 @@
       * upload_session_id  int|null
       * activity_name      string
 
-    Inline #ff0050 is the FastPix brand magenta. Used on the spinner +
-    progress fill only. No CSS file is added per project policy.
+    Visual design mirrors preparing.html exactly. Colors: #ec1e5b primary,
+    #c3174a striped accent, #0b0d12 title, #4a505b body. Inline <style>
+    block matches the upload_widget pattern.
 }}
-<div class="mod_fastpix-processing card border-0 shadow-sm rounded-3 mx-auto"
+<div class="mod_fastpix-processing"
      data-region="fastpix-processing"
      data-cm-id="{{cm_id}}"
      data-activity-id="{{activity_id}}"
-     {{#upload_session_id}}data-upload-session-id="{{upload_session_id}}"{{/upload_session_id}}
-     style="max-width: 36rem;">
-    <div class="card-body text-center p-5">
-        <div class="mb-4" aria-hidden="true">
-            <i class="fa fa-spinner fa-spin fa-3x"
-               style="color:#ff0050;"></i>
+     {{#upload_session_id}}data-upload-session-id="{{upload_session_id}}"{{/upload_session_id}}>
+
+    <style>
+        .fastpix-prep-card {
+            position: relative;
+            width: 100%;
+            max-width: 680px;
+            margin: 0 auto;
+            padding: 56px 64px 44px;
+            background: #fff;
+            border: 1px solid #ececef;
+            border-radius: 14px;
+            text-align: center;
+            box-shadow:
+                0 1px 2px rgba(11, 13, 18, 0.04),
+                0 8px 24px -12px rgba(11, 13, 18, 0.10),
+                0 20px 50px -24px rgba(236, 30, 91, 0.20);
+            animation: fastpix-prep-card-in 500ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+        }
+        @keyframes fastpix-prep-card-in {
+            from { opacity: 0; transform: translateY(8px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+
+        .fastpix-prep-spinner-wrap {
+            position: relative;
+            width: 88px;
+            height: 88px;
+            margin: 0 auto 28px;
+            display: grid;
+            place-items: center;
+        }
+        .fastpix-prep-spinner-wrap::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            border-radius: 50%;
+            background: radial-gradient(closest-side,
+                rgba(236, 30, 91, 0.55) 0%,
+                rgba(236, 30, 91, 0.18) 55%,
+                rgba(236, 30, 91, 0.00) 80%);
+            filter: blur(8px);
+            animation: fastpix-prep-glow 2s ease-in-out infinite;
+            z-index: 0;
+        }
+        @keyframes fastpix-prep-glow {
+            0%, 100% { transform: scale(0.9); opacity: 0.4; }
+            50%      { transform: scale(1.1); opacity: 1.0; }
+        }
+        .fastpix-prep-spinner {
+            position: relative;
+            width: 56px;
+            height: 56px;
+            z-index: 1;
+            animation: fastpix-prep-spin 1.3s linear infinite;
+        }
+        @keyframes fastpix-prep-spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .fastpix-prep-title {
+            margin: 0 0 14px;
+            font-size: 28px;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            color: #0b0d12;
+        }
+        .fastpix-prep-lede {
+            margin: 0 auto 36px;
+            max-width: 48ch;
+            font-size: 15.5px;
+            line-height: 1.55;
+            color: #4a505b;
+        }
+
+        .fastpix-prep-bar {
+            position: relative;
+            height: 10px;
+            border-radius: 999px;
+            overflow: hidden;
+            background-color: #ec1e5b;
+            background-image: repeating-linear-gradient(135deg,
+                #c3174a 0, #c3174a 12px,
+                #ec1e5b 12px, #ec1e5b 24px);
+            background-size: 33.94px 33.94px;
+            box-shadow:
+                inset 0 0 0 1px rgba(236, 30, 91, 0.45),
+                0 6px 16px -4px rgba(236, 30, 91, 0.35);
+            animation: fastpix-prep-stripe 1s linear infinite;
+        }
+        @keyframes fastpix-prep-stripe {
+            from { background-position: 0 0; }
+            to   { background-position: 33.94px 0; }
+        }
+
+        .fastpix-prep-fallback {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            margin: 22px auto 0;
+            font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+            font-weight: 500;
+            font-size: 13.5px;
+            color: #4a505b;
+        }
+        .fastpix-prep-fallback__badge {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: #0b0d12;
+            color: #fff;
+            font-family: Georgia, 'Times New Roman', serif;
+            font-style: italic;
+            font-weight: 700;
+            font-size: 11px;
+            line-height: 1;
+            flex-shrink: 0;
+        }
+
+        @media (max-width: 600px) {
+            .fastpix-prep-card { padding: 40px 24px; }
+            .fastpix-prep-title { font-size: 22px; }
+            .fastpix-prep-lede  { font-size: 14.5px; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            .fastpix-prep-card,
+            .fastpix-prep-spinner,
+            .fastpix-prep-spinner-wrap::before,
+            .fastpix-prep-bar {
+                animation: none !important;
+            }
+        }
+    </style>
+
+    <div class="fastpix-prep-card">
+
+        <div class="fastpix-prep-spinner-wrap" aria-hidden="true">
+            <svg class="fastpix-prep-spinner" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg">
+                <circle cx="20"  cy="4"    r="3.4" fill="#ec1e5b" opacity="1.00"/>
+                <circle cx="31.3" cy="8.7" r="3.1" fill="#ec1e5b" opacity="0.85"/>
+                <circle cx="36"  cy="20"   r="2.8" fill="#ec1e5b" opacity="0.70"/>
+                <circle cx="31.3" cy="31.3" r="2.5" fill="#ec1e5b" opacity="0.55"/>
+                <circle cx="20"  cy="36"   r="2.2" fill="#ec1e5b" opacity="0.40"/>
+                <circle cx="8.7" cy="31.3" r="2.5" fill="#ec1e5b" opacity="0.55"/>
+                <circle cx="4"   cy="20"   r="2.8" fill="#ec1e5b" opacity="0.70"/>
+                <circle cx="8.7" cy="8.7"  r="3.1" fill="#ec1e5b" opacity="0.85"/>
+            </svg>
         </div>
-        <h3 class="h4 mb-2 fw-semibold">
+
+        <h1 class="fastpix-prep-title">
             {{#str}}processing_title, mod_fastpix{{/str}}
-        </h3>
-        <p class="text-body-secondary mb-4">
+        </h1>
+        <p class="fastpix-prep-lede">
             {{#str}}processing_message, mod_fastpix{{/str}}
         </p>
-        <div class="progress rounded-pill"
+
+        <div class="fastpix-prep-bar"
              role="progressbar"
              aria-label="{{#str}}processing_progress_aria, mod_fastpix{{/str}}"
-             aria-busy="true"
-             style="height: 8px;">
-            <div class="progress-bar progress-bar-striped progress-bar-animated"
-                 style="width:100%;background-color:#ff0050;"></div>
-        </div>
+             aria-busy="true"></div>
+
         <p data-region="fastpix-processing-fallback"
-           class="text-body-secondary small mt-4 mb-0"
+           class="fastpix-prep-fallback"
            hidden>
-            <i class="fa fa-circle-info me-1" aria-hidden="true"></i>
-            {{#str}}processing_max_polls, mod_fastpix{{/str}}
+            <span class="fastpix-prep-fallback__badge" aria-hidden="true">i</span>
+            <span>{{#str}}processing_max_polls, mod_fastpix{{/str}}</span>
         </p>
     </div>
 </div>
