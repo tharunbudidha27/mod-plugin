@@ -276,7 +276,10 @@ class watch_tracker_service {
         // (Step 5). Tests with completion disabled skip this branch.
         try {
             $course = $DB->get_record('course', ['id' => (int)$activity->course], '*', MUST_EXIST);
-            $cm = get_coursemodule_from_instance('fastpix', (int)$activity->id, 0, false, MUST_EXIST);
+            // Pass course id to scope the lookup — protects against orphan
+            // course_modules rows from raw-SQL data resets (see
+            // playback_service::get_or_create_attempt for the full note).
+            $cm = get_coursemodule_from_instance('fastpix', (int)$activity->id, (int)$activity->course, false, MUST_EXIST);
             $completion = new \completion_info($course);
             if ($completion->is_enabled($cm) == COMPLETION_TRACKING_AUTOMATIC) {
                 $completion->update_state($cm, COMPLETION_UNKNOWN, (int)$attempt->userid);

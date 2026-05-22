@@ -173,13 +173,31 @@ class playback_service {
         // created event arrived but ready event was lost / delayed).
         // local_fastpix's resolve does not always throw asset_not_ready in
         // that case; treat empty playback_id as still-processing.
-        if (empty($payload->playback_id)) {
+        if (empty($payload->playbackid)) {
             return new view_state_processing(
                 activity_id:       (int)$activity->id,
                 cm_id:             (int)$cm->id,
                 upload_session_id: !empty($activity->upload_session_id) ? (int)$activity->upload_session_id : null,
                 activity_name:     (string)$activity->name,
             );
+        }
+
+        // Phase 2 DRM — read the optional drm_token (aud="drm:<id>" JWT)
+        // off the payload. Supported once local_fastpix's playback_service
+        // exposes it; older versions don't have the property and we get
+        // an empty string. If the asset requires DRM but no drm_token is
+        // available, refuse to render the player with a stale token —
+        // show the graceful drm_unsupported error instead, which is less
+        // confusing than the FastPix CDN's "Network Error" overlay.
+        $drm_token = '';
+        if (isset($payload->drm_token)) {
+            $drm_token = (string)$payload->drm_token;
+        } else if (isset($payload->drmtoken)) {
+            // Defensive — match local_fastpix's no-underscore property style.
+            $drm_token = (string)$payload->drmtoken;
+        }
+        if (!empty($payload->drmrequired) && $drm_token === '') {
+            return new view_state_error('drm_unsupported', (string)$activity->name);
         }
 
         // Phase D Slice A: compute the visible progress strip's first-paint
@@ -191,18 +209,18 @@ class playback_service {
         );
 
         return new view_state_player(
-            playback_id:               $payload->playback_id,
-            playback_token:            $payload->playback_token,
-            expires_at_ts:             $payload->expires_at_ts,
-            drm_required:              $payload->drm_required,
-            accent_color:              $payload->accent_color,
+            playback_id:               $payload->playbackid,
+            playback_token:            $payload->playbacktoken,
+            expires_at_ts:             $payload->expiresatts,
+            drm_required:              $payload->drmrequired,
+            accent_color:              $payload->accentcolor,
             // Teacher's per-activity checkbox (mdl_fastpix.default_show_captions)
             // is the source of truth — it overrides the tenant default coming
             // back on the playback_payload. Falsy activity column → fall back
             // to the tenant-level default so global "always on" still works.
             default_show_captions:     !empty($activity->default_show_captions)
                                           ? true
-                                          : (bool) $payload->default_show_captions,
+                                          : (bool) $payload->defaultshowcaptions,
             activity_name:             (string)$activity->name,
             activity_id:               (int)$activity->id,
             cm_id:                     (int)$cm->id,
@@ -215,6 +233,7 @@ class playback_service {
             asset_duration_seconds:    $duration,
             initial_intervals_json:    !empty($attempt->watched_intervals) ? (string)$attempt->watched_intervals : '[]',
             has_completed:             !empty($attempt->has_completed),
+            drm_token:                 $drm_token,
         );
     }
 
@@ -241,7 +260,13 @@ class playback_service {
         // "preview mode" and short-circuit with a soft-success (no row write,
         // no fraud check). The AMD watch_tracker should no-op when its
         // session_token matches a stub.
-        $cm = get_coursemodule_from_instance('fastpix', (int)$activity->id, 0, false, MUST_EXIST);
+        // Pass the activity's course id to scope the lookup. Without this,
+        // orphan course_modules rows from previously-deleted activities
+        // (e.g. raw TRUNCATE on mdl_fastpix that doesn't cascade through
+        // mdl_course_modules) can match the same fastpix.id, throwing
+        // dml_multiple_records_exception. Scoping by course makes the
+        // (course, module, instance) tuple unique per Moodle invariant.
+        $cm = get_coursemodule_from_instance('fastpix', (int)$activity->id, (int)$activity->course, false, MUST_EXIST);
         $context = \context_module::instance((int)$cm->id);
         if (has_capability('mod/fastpix:addinstance', $context, $userid, false)) {
             return (object)[

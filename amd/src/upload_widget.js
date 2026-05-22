@@ -18,6 +18,31 @@ import {call as ajaxCall} from 'core/ajax';
 import Notification from 'core/notification';
 import Templates from 'core/templates';
 
+/**
+ * FastPix resumable upload SDK — npm: @fastpix/resumable-uploads.
+ *
+ * Loaded via native ESM import() so it sits outside Moodle's RequireJS
+ * context (same strategy view.php uses for @fastpix/fp-player). Splits
+ * the file into chunkSize-KB pieces, uses the GCS two-step resumable
+ * protocol (POST x-goog-resumable: start → PUT chunks with Content-Range),
+ * retries failed chunks, and resumes from the last completed chunk on
+ * network failure — so multi-GB uploads survive transient disconnects.
+ *
+ * Requires local_fastpix v >= 2026051201 (which sends X-Client-Type:
+ * web-browser on /v1/on-demand/upload so FastPix returns a POST-signed
+ * resumable URL — earlier versions returned a PUT-signed URL the SDK
+ * cannot use and the initial POST would return 405).
+ *
+ * https://www.npmjs.com/package/@fastpix/resumable-uploads
+ */
+const UPLOAD_SDK_URL = 'https://cdn.jsdelivr.net/npm/@fastpix/resumable-uploads@latest/+esm';
+
+/** Chunk size in KB (16 MB — matches the SDK default). */
+const UPLOAD_CHUNK_KB = 16384;
+
+/** Per-chunk retry attempts before the upload gives up. */
+const UPLOAD_CHUNK_ATTEMPTS = 5;
+
 const SELECTORS = {
     region:           '[data-region="fastpix-upload-widget"]',
     picker:           '[data-region="fastpix-upload-picker"]',
@@ -68,41 +93,79 @@ const setUrlStatus = (message, kind) => {
 };
 
 /**
- * PUT bytes to the signed upload URL with progress reporting.
+ * Lazy-load the FastPix resumable upload SDK. Cached on `window` so the
+ * dynamic import only runs once per page lifecycle even if the user
+ * uploads multiple files. @fastpix/resumable-uploads exposes
+ * `Uploader.init(opts)` — a STATIC factory, not a constructor.
  *
- * CORS-after-100% workaround: FastPix's signed-PUT bucket doesn't return
- * Access-Control-Allow-Origin on the PUT response, so the browser fires
- * `error` even after bytes are accepted server-side. Treat "progress
- * reached 100% then error fired" as success.
+ * @returns {Promise<{createUpload: (opts: Object) => Object}>}
  */
-const putToSignedUrl = (file, uploadUrl, onProgress) => new Promise((resolve, reject) => {
-    let bytesUploaded = false;
-    const xhr = new XMLHttpRequest();
-    xhr.open('PUT', uploadUrl);
-    xhr.upload.addEventListener('progress', (e) => {
-        if (e.lengthComputable) {
-            const pct = Math.round((e.loaded / e.total) * 100);
-            if (pct >= 100) { bytesUploaded = true; }
+const loadUploadSdk = async () => {
+    if (window.__fastpixUploadSdk) {
+        return window.__fastpixUploadSdk;
+    }
+    const mod = await import(UPLOAD_SDK_URL);
+    if (!mod.Uploader || typeof mod.Uploader.init !== 'function') {
+        throw new Error('upload_sdk_no_init');
+    }
+    const adapter = {
+        createUpload: (opts) => mod.Uploader.init(opts),
+    };
+    window.__fastpixUploadSdk = adapter;
+    return adapter;
+};
+
+/**
+ * Resumable + chunked upload to a FastPix POST-signed resumable URL.
+ *
+ *   - File is split into UPLOAD_CHUNK_KB chunks.
+ *   - Each chunk PUTs to the session URI with Content-Range; failed
+ *     chunks retry up to UPLOAD_CHUNK_ATTEMPTS times.
+ *   - On a dropped connection, the SDK resumes from the last completed
+ *     chunk instead of restarting the entire upload.
+ *   - Progress is reported as a 0..100 percentage of total bytes.
+ *
+ * @param {File} file
+ * @param {string} uploadUrl POST-signed resumable URL from local_fastpix.
+ * @param {(percent: number) => void} onProgress
+ * @returns {Promise<void>} resolves on `success`.
+ */
+const putToSignedUrl = async (file, uploadUrl, onProgress) => {
+    let sdk;
+    try {
+        sdk = await loadUploadSdk();
+    } catch (e) {
+        if (window.console) {
+            console.error('[mod_fastpix] failed to load upload SDK', e);
+        }
+        throw new Error('upload_sdk_load_failed');
+    }
+
+    return new Promise((resolve, reject) => {
+        const upload = sdk.createUpload({
+            endpoint:          uploadUrl,
+            file:              file,
+            chunkSize:         UPLOAD_CHUNK_KB,
+            retryChunkAttempt: UPLOAD_CHUNK_ATTEMPTS,
+        });
+
+        upload.on('progress', (event) => {
+            const pct = Math.max(0, Math.min(100, Math.round(event.detail || 0)));
             onProgress(pct);
-        }
-    });
-    xhr.upload.addEventListener('load', () => { bytesUploaded = true; });
-    xhr.addEventListener('load', () => {
-        if (xhr.status >= 200 && xhr.status < 300) {
+        });
+
+        upload.on('success', () => {
+            onProgress(100);
             resolve();
-        } else if (xhr.status === 0 && bytesUploaded) {
-            resolve();
-        } else {
-            reject(new Error(`upload_failed_${xhr.status}`));
-        }
+        });
+
+        upload.on('error', (event) => {
+            const detail = event.detail || {};
+            const msg = detail.message || (detail.toString && detail.toString()) || 'upload_failed';
+            reject(new Error(msg));
+        });
     });
-    xhr.addEventListener('error', () => {
-        if (bytesUploaded) { resolve(); return; }
-        reject(new Error('upload_network_error'));
-    });
-    xhr.addEventListener('abort', () => reject(new Error('upload_aborted')));
-    xhr.send(file);
-});
+};
 
 const showProgressUI = (region) => {
     const dropzone = region.querySelector(SELECTORS.dropzone);

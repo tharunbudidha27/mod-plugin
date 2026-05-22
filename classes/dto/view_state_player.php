@@ -37,5 +37,10 @@ class view_state_player {
         // it via {{{ ... }}} (no escaping) because it is server-generated.
         public readonly string  $initial_intervals_json,
         public readonly bool    $has_completed,
+        // Phase 2 DRM — separate JWT for the license server (aud="drm:<id>").
+        // Populated by local_fastpix's playback_service::resolve() when
+        // drm_required=true. Empty string for non-DRM assets. The player
+        // mounts this on its `drm-token` attribute.
+        public readonly string  $drm_token = '',
     ) {}
 }

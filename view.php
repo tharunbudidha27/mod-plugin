@@ -108,7 +108,12 @@ if ($state instanceof \mod_fastpix\dto\view_state_player) {
             el.setAttribute('playback-id', wrap.getAttribute('data-playback-id'));
             el.setAttribute('token', wrap.getAttribute('data-playback-token'));
             if (wrap.getAttribute('data-drm-required') === '1') {
-                el.setAttribute('drm-token', wrap.getAttribute('data-playback-token'));
+                // Phase 2 DRM — drm-token is a SEPARATE JWT minted by
+                // local_fastpix with aud='drm:<playback_id>', not the
+                // manifest token. resolve_for_view refuses to render the
+                // player at all if drm_required but drm_token is empty,
+                // so by the time we get here data-drm-token is always set.
+                el.setAttribute('drm-token', wrap.getAttribute('data-drm-token'));
             }
             el.setAttribute('stream-type', 'on-demand');
             var accent = wrap.getAttribute('data-accent-color');

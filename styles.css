@@ -144,7 +144,7 @@
  * as a mask-image overlay — the fill colours inside the SVG are
  * invisible. Workaround: replace the container's background with the
  * full-colour brand SVG (inlined as a data URL) and hide the masked img. */
-.activityiconcontainer:has(img[src*="fastpix"]),
+.activityiconcontainer:has(img[src*="image.php"][src*="/fastpix/"]),
 .activityiconcontainer.modtype_fastpix,
 .activityiconcontainer.fastpix,
 [data-modulename="fastpix"] .activityiconcontainer,
@@ -164,7 +164,7 @@ img.modicon_fastpix {
 }
 
 /* Hide the masked img overlay so only the brand background shows. */
-.activityiconcontainer:has(img[src*="fastpix"]) img,
+.activityiconcontainer:has(img[src*="image.php"][src*="/fastpix/"]) img,
 .activityiconcontainer.modtype_fastpix img,
 [data-modulename="fastpix"] .activityicon,
 [data-internal="fastpix"] .activityicon {

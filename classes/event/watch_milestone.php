@@ -20,7 +20,11 @@ class watch_milestone extends \core\event\base {
     public static function create_from_attempt(int $attemptid, int $milestone): self {
         global $DB;
         $attempt = $DB->get_record('fastpix_attempt', ['id' => $attemptid], '*', MUST_EXIST);
-        $cm = get_coursemodule_from_instance('fastpix', (int)$attempt->activity_id, 0, false, MUST_EXIST);
+        // Load the activity row so we can scope the cm lookup by course id.
+        // Bare instance-only lookup is ambiguous when orphan course_modules
+        // rows exist (raw-SQL resets that didn't cascade through cm cleanup).
+        $activity = $DB->get_record('fastpix', ['id' => (int)$attempt->activity_id], 'id, course', MUST_EXIST);
+        $cm = get_coursemodule_from_instance('fastpix', (int)$activity->id, (int)$activity->course, false, MUST_EXIST);
         $context = \context_module::instance($cm->id);
 
         $event = self::create([

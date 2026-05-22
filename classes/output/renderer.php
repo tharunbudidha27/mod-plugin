@@ -47,6 +47,8 @@ class renderer extends \plugin_renderer_base {
             // Phase D Slice A Step 2 — tracker JS hydration.
             'initial_intervals_json'   => $s->initial_intervals_json,
             'has_completed'            => $s->has_completed,
+            // Phase 2 DRM — separate license-server JWT.
+            'drm_token'                => $s->drm_token,
         ]);
     }
 

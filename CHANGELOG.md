@@ -1,11 +1,12 @@
 # Changelog
 
-All notable changes to `mod_fastpix` are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); 
+All notable changes to `mod_fastpix` are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows Moodle's `YYYYMMDDNN` convention with a human-readable `release` tag.
 
 ---
 
 ## [v1.0.0] — 2026-05-14
 
+First production release.
 
 ### Added
 
@@ -96,6 +97,20 @@ All six run on every callback; each violation increments `fraud_count` and recor
 - Widevine L3 screen-recording is unmitigated in v1.0 — same constraint as every browser-based DRM in 2026 (S7).
 - Reconciler for missed webhooks is deferred to year 2 (ADR-003).
 - Per-user watermarking withdrawn (ADR-005).
+
+---
+
+## [v0.x.0-dev] — 2026-05-08 to 2026-05-13
+
+Pre-release development cycle. Five phases (A → E) shipped in sequence:
+
+- **Phase A** — Skeleton: lib.php, install.xml, lang strings, capabilities, version.php.
+- **Phase B** — Activity form: upload widget, URL pull, validation, asset-swap guard.
+- **Phase C** — Player view: ESM player mount, hls.js loader, processing state, error states.
+- **Phase D** — Watch tracking: six fraud checks, completion, gradebook, two-bar UI, resume, milestone events.
+- **Phase E** — Backup/restore + real privacy provider.
+
+The complete per-phase development log lives in `.claude/` alongside the architectural rules.
 
 ---
 

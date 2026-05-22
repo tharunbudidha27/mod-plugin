@@ -86,6 +86,23 @@ class record_view_progress extends external_api {
         // ③ require_capability.
         require_capability('mod/fastpix:view', $context);
 
+        // Teacher preview short-circuit. playback_service::get_or_create_attempt
+        // intentionally does NOT insert a fastpix_attempt row for users with
+        // mod/fastpix:addinstance (teachers / admins previewing) — see the
+        // "Phase D contract" note there. Their session_token is a real HMAC
+        // but there's no matching DB row, so resolve_active_attempt would
+        // throw error_session_no_attempt every tick of the watch tracker.
+        // Return a soft-success response so the tracker keeps quiet and no
+        // fraud_count is incremented for a teacher just opening the activity.
+        if (has_capability('mod/fastpix:addinstance', $context)) {
+            return [
+                'coverage_percent'  => 0,
+                'completion_state'  => 'in_progress',
+                'fraud_count'       => 0,
+                'last_fraud_reason' => null,
+            ];
+        }
+
         // ④ session_token verify + attempt state check (delegated to the
         // service that owns these three error modes — A6 / S3).
         $attempt = session_token_service::instance()->resolve_active_attempt(
